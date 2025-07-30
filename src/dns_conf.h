@@ -58,8 +58,8 @@ extern "C" {
 #define DEFAULT_DNS_HTTPS_PORT 443
 #define DNS_MAX_CONF_CNAME_LEN 256
 #define SMARTDNS_CONF_FILE "/etc/smartdns/smartdns.conf"
-#define SMARTDNS_LOG_FILE "/var/log/smartdns/smartdns.log"
-#define SMARTDNS_AUDIT_FILE "/var/log/smartdns/smartdns-audit.log"
+#define SMARTDNS_LOG_FILE "/tmp/smartdns.log"
+#define SMARTDNS_AUDIT_FILE "/tmp/smartdns-audit.log"
 #define SMARTDNS_CACHE_FILE "/tmp/smartdns.cache"
 #define SMARTDNS_DEBUG_DIR "/tmp/smartdns"
 
