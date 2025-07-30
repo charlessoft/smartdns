@@ -31,6 +31,7 @@
 #include "nftset.h"
 #include "tlog.h"
 #include "util.h"
+#include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <ifaddrs.h>
@@ -2387,7 +2388,8 @@ static void _dns_server_ping_result(struct ping_host_struct *ping_host, const ch
 	int rtt = tv->tv_sec * 10000 + tv->tv_usec / 100;
 
 	if (result == PING_RESULT_RESPONSE) {
-		tlog(TLOG_DEBUG, "from %s: seq=%d time=%d, lasttime=%d id=%d", host, seqno, rtt, last_rtt, request->id);
+		tlog(TLOG_INFO, "PING response from %s: seq=%d, rtt=%d ms, last_rtt=%d ms, domain=%s, id=%d", 
+			 host, seqno, rtt, last_rtt, request->domain, request->id);
 	} else {
 		tlog(TLOG_DEBUG, "from %s: seq=%d timeout, id=%d", host, seqno, request->id);
 	}
@@ -2402,6 +2404,11 @@ static void _dns_server_ping_result(struct ping_host_struct *ping_host, const ch
 		}
 
 		if (request->ping_time > rtt || request->ping_time == -1) {
+			char old_ip[INET_ADDRSTRLEN] = "none";
+			if (request->has_ip) {
+				inet_ntop(AF_INET, request->ip_addr, old_ip, INET_ADDRSTRLEN);
+			}
+			
 			memcpy(request->ip_addr, &addr_in->sin_addr.s_addr, 4);
 			request->ping_time = rtt;
 			request->has_cname = 0;
@@ -2412,6 +2419,11 @@ static void _dns_server_ping_result(struct ping_host_struct *ping_host, const ch
 			} else {
 				request->has_cname = 0;
 			}
+			
+			char new_ip[INET_ADDRSTRLEN];
+			inet_ntop(AF_INET, request->ip_addr, new_ip, INET_ADDRSTRLEN);
+			tlog(TLOG_INFO, "FASTEST_IP updated for domain %s: %s (rtt=%d ms) -> %s (rtt=%d ms)", 
+				 request->domain, old_ip, last_rtt, new_ip, rtt);
 		}
 
 		if (request->qtype == DNS_T_AAAA && request->dualstack_selection) {
@@ -2456,6 +2468,11 @@ static void _dns_server_ping_result(struct ping_host_struct *ping_host, const ch
 			}
 
 			if (request->ping_time > rtt || request->ping_time == -1) {
+				char old_ip[INET6_ADDRSTRLEN] = "none";
+				if (request->has_ip) {
+					inet_ntop(AF_INET6, request->ip_addr, old_ip, INET6_ADDRSTRLEN);
+				}
+				
 				request->ping_time = rtt;
 				request->has_cname = 0;
 				request->has_ip = 1;
@@ -2466,6 +2483,11 @@ static void _dns_server_ping_result(struct ping_host_struct *ping_host, const ch
 				} else {
 					request->has_cname = 0;
 				}
+				
+				char new_ip[INET6_ADDRSTRLEN];
+				inet_ntop(AF_INET6, request->ip_addr, new_ip, INET6_ADDRSTRLEN);
+				tlog(TLOG_INFO, "FASTEST_IPv6 updated for domain %s: %s (rtt=%d ms) -> %s (rtt=%d ms)", 
+					 request->domain, old_ip, last_rtt, new_ip, rtt);
 			}
 
 			if (request->qtype == DNS_T_AAAA) {
@@ -2534,12 +2556,14 @@ static int _dns_server_check_speed(struct dns_request *request, char *ip)
 	type = request->check_order_list->orders[order].type;
 	switch (type) {
 	case DOMAIN_CHECK_ICMP:
-		tlog(TLOG_DEBUG, "ping %s with icmp, order: %d, timeout: %d", ip, order, ping_timeout);
+		tlog(TLOG_INFO, "Starting ICMP ping for IP: %s, order: %d, timeout: %d ms, domain: %s", 
+			 ip, order, ping_timeout, request->domain);
 		return _dns_server_ping(request, PING_TYPE_ICMP, ip, ping_timeout);
 		break;
 	case DOMAIN_CHECK_TCP:
 		snprintf(tcp_ip, sizeof(tcp_ip), "%s:%d", ip, port);
-		tlog(TLOG_DEBUG, "ping %s with tcp, order: %d, timeout: %d", tcp_ip, order, ping_timeout);
+		tlog(TLOG_INFO, "Starting TCP ping for IP: %s, order: %d, timeout: %d ms, domain: %s", 
+			 tcp_ip, order, ping_timeout, request->domain);
 		return _dns_server_ping(request, PING_TYPE_TCP, tcp_ip, ping_timeout);
 		break;
 	default:
@@ -2705,6 +2729,8 @@ static int _dns_server_process_answer_A(struct dns_rrs *rrs, struct dns_request 
 	}
 
 	sprintf(ip, "%d.%d.%d.%d", addr[0], addr[1], addr[2], addr[3]);
+	
+	tlog(TLOG_INFO, "Received A record: %s for domain %s, starting speed check", ip, domain);
 
 	/* start ping */
 	if (_dns_server_check_speed(request, ip) != 0) {
@@ -2784,6 +2810,8 @@ static int _dns_server_process_answer_AAAA(struct dns_rrs *rrs, struct dns_reque
 	sprintf(ip, "[%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x]", addr[0], addr[1], addr[2],
 			addr[3], addr[4], addr[5], addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13],
 			addr[14], addr[15]);
+
+	tlog(TLOG_INFO, "Received AAAA record: %s for domain %s, starting speed check", ip, domain);
 
 	/* start ping */
 	if (_dns_server_check_speed(request, ip) != 0) {
@@ -3299,8 +3327,11 @@ static int dns_server_resolve_callback(const char *domain, dns_result_type rtype
 	}
 
 	if (rtype == DNS_QUERY_RESULT) {
-		tlog(TLOG_DEBUG, "query result from server %s: %d, type: %d", dns_client_get_server_ip(server_info),
-			 dns_client_get_server_port(server_info), dns_client_get_server_type(server_info));
+		const char *actual_group = (request->dns_group_name && request->dns_group_name[0] != '\0') ? 
+									request->dns_group_name : "default";
+		tlog(TLOG_INFO, "DNS response from upstream server %s:%d (type:%d, group:%s) for domain: %s", 
+			 dns_client_get_server_ip(server_info), dns_client_get_server_port(server_info), 
+			 dns_client_get_server_type(server_info), actual_group, domain);
 
 		if (request->passthrough == 1 && atomic_read(&request->notified) == 0) {
 			struct dns_server_post_context context;
@@ -4942,6 +4973,11 @@ static int _dns_server_do_query(struct dns_request *request, int skip_notify_eve
 		safe_strncpy(request->dns_group_name, group_name, DNS_GROUP_NAME_LEN);
 	}
 
+	// 添加DNS组日志输出
+	const char *actual_group = (group_name && group_name[0] != '\0') ? group_name : "default";
+	tlog(TLOG_INFO, "DNS query for domain: %s, type: %d, using upstream DNS group: %s", 
+		 request->domain, request->qtype, actual_group);
+
 	if (_dns_server_process_cname_pre(request) != 0) {
 		goto errout;
 	}
@@ -6132,16 +6168,23 @@ errout:
 static int _dns_server_socket(void)
 {
 	int i = 0;
-
+	printf("\t %d\n",dns_conf_bind_ip_num);
 	for (i = 0; i < dns_conf_bind_ip_num; i++) {
 		struct dns_bind_ip *bind_ip = &dns_conf_bind_ip[i];
 		switch (bind_ip->type) {
 		case DNS_BIND_TYPE_UDP:
+			{
+				printf("udp->\n");
+			}
 			if (_dns_server_socket_udp(bind_ip) != 0) {
 				goto errout;
 			}
 			break;
+			
 		case DNS_BIND_TYPE_TCP:
+		{
+			printf("tcp->\n");
+		}
 			if (_dns_server_socket_tcp(bind_ip) != 0) {
 				goto errout;
 			}
@@ -6290,22 +6333,26 @@ int dns_server_init(void)
 		tlog(TLOG_ERROR, "create epoll failed, %s\n", strerror(errno));
 		goto errout;
 	}
-
+	printf("\tdns_server_init\n");
 	ret = _dns_server_socket();
 	if (ret != 0) {
+			printf("\tdns_server_init fail\n");
 		tlog(TLOG_ERROR, "create server socket failed.\n");
 		goto errout;
 	}
+	printf("\tdns_server_init 111\n");
 
 	pthread_mutex_init(&server.request_list_lock, NULL);
 	INIT_LIST_HEAD(&server.request_list);
 	server.epoll_fd = epollfd;
 	atomic_set(&server.run, 1);
+	printf("\tdns_server_init 222\n");
 
 	if (dns_server_start() != 0) {
 		tlog(TLOG_ERROR, "start service failed.\n");
 		goto errout;
 	}
+	printf("\tdns_server_init 333\n");
 
 	_dns_server_check_ipv6_ready();
 	tlog(TLOG_INFO, "%s",

@@ -46,7 +46,7 @@
 #include <ucontext.h>
 
 #define MAX_KEY_LEN 64
-#define SMARTDNS_PID_FILE "/var/run/smartdns.pid"
+#define SMARTDNS_PID_FILE "/tmp/smartdns.pid"
 #define TMP_BUFF_LEN_32 32
 
 static int verbose_screen;
@@ -381,7 +381,7 @@ static int _smartdns_init(void)
 	int ret = 0;
 	const char *logfile = _smartdns_log_path();
 	int i = 0;
-
+	printf("_smartdns_init===>\n");
 	ret = tlog_init(logfile, dns_conf_log_size, dns_conf_log_num, 0, 0);
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "start tlog failed.\n");
@@ -393,7 +393,7 @@ static int _smartdns_init(void)
 	if (dns_conf_log_file_mode > 0) {
 		tlog_set_permission(tlog_get_root(), dns_conf_log_file_mode, dns_conf_log_file_mode);
 	}
-
+printf("_smartdns_init===>111\n");
 	tlog(TLOG_NOTICE, "smartdns starting...(Copyright (C) Nick Peng <pymumu@gmail.com>, build: %s %s)", __DATE__,
 		 __TIME__);
 
@@ -401,7 +401,7 @@ static int _smartdns_init(void)
 		tlog(TLOG_ERROR, "init ssl failed.");
 		goto errout;
 	}
-
+printf("_smartdns_init===>222\n");
 	for (i = 0; i < 60 && dns_conf_server_num <= 0; i++) {
 		ret = _smartdns_load_from_resolv();
 		if (ret == 0) {
@@ -416,7 +416,7 @@ static int _smartdns_init(void)
 		tlog(TLOG_ERROR, "no dns server found, exit...");
 		goto errout;
 	}
-
+printf("_smartdns_init===>333\n");
 	ret = fast_ping_init();
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "start ping failed.\n");
@@ -428,30 +428,32 @@ static int _smartdns_init(void)
 		tlog(TLOG_ERROR, "start proxy failed.\n");
 		goto errout;
 	}
-
+printf("_smartdns_init===>333\n");
 	ret = _proxy_add_servers();
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "add proxy servers failed.");
 	}
+printf("_smartdns_init===>444\n");
 
 	ret = dns_server_init();
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "start dns server failed.\n");
 		goto errout;
 	}
+printf("_smartdns_init===>555\n");
 
 	ret = dns_client_init();
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "start dns client failed.\n");
 		goto errout;
 	}
-
+printf("_smartdns_init===>666\n");
 	ret = _smartdns_add_servers();
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "add servers failed.");
 		goto errout;
 	}
-
+printf("_smartdns_init===>777\n");
 	ret = _smartdns_set_ecs_ip();
 	if (ret != 0) {
 		tlog(TLOG_WARN, "set ecs ip address failed.");
@@ -632,23 +634,26 @@ int main(int argc, char *argv[])
 			return 1;
 		}
 	}
-
+	printf("%s\n", config_file);
 	if (dns_server_load_conf(config_file) != 0) {
 		fprintf(stderr, "load config failed.\n");
 		goto errout;
 	}
+	printf("dns_server_load_conf load success\n");
 
 	if (is_foreground == 0) {
-		if (daemon(0, 0) < 0) {
-			fprintf(stderr, "run daemon process failed, %s\n", strerror(errno));
-			return 1;
-		}
+			printf("is_foreground=%d\n", is_foreground);
+		// if (daemon(0, 0) < 0) {
+		// 	fprintf(stderr, "run daemon process failed, %s\n", strerror(errno));
+		// 	return 1;
+		// }
 	}
 
+printf("signal_ignore\n");
 	if (signal_ignore == 0) {
 		_reg_signal();
 	}
-
+	printf("pid_file:%s\n",pid_file);
 	if (strncmp(pid_file, "-", 2) != 0 && create_pid_file(pid_file) != 0) {
 		goto errout;
 	}
@@ -661,16 +666,21 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "init failed.\n");
 		return 1;
 	}
-
+	printf("%s\n","==drop_root_privilege begin\n");
 	drop_root_privilege();
+	printf("%s\n","==drop_root_privilege\n");
 
+	printf("%s\n","==_smartdns_init\n");
 	ret = _smartdns_init();
 	if (ret != 0) {
 		usleep(100000);
+		printf("%s\n","==_smartdns_init fail go error\n");
 		goto errout;
 	}
-
+printf("%s\n","==__smartdns_exit \n");
 	atexit(_smartdns_exit);
+	printf("%s\n","==__smartdns_exit end \n");
+
 
 	return _smartdns_run();
 
