@@ -53,3 +53,5 @@ test:
 
 testns:
 	nslookup -port=5533 accounts.google.com 127.0.0.1
+kill:
+	sudo pkill smartdns
