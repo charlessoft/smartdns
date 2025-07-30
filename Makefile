@@ -25,6 +25,9 @@ SMARTDNS_SYSTEMD = systemd/smartdns.service
 .PHONY: all clean install SMARTDNS_BIN
 all: SMARTDNS_BIN 
 
+run:
+	src/smartdns -f -c src/smartdns.conf -p -
+
 SMARTDNS_BIN: $(SMARTDNS_SYSTEMD)
 	$(MAKE) $(MFLAGS) -C src all 
 
@@ -45,3 +48,8 @@ install: SMARTDNS_BIN
 	install -v -m 0755 -D -t $(DESTDIR)$(SBINDIR) src/smartdns
 	install -v -m 0644 -D -t $(DESTDIR)$(SYSTEMDSYSTEMUNITDIR) systemd/smartdns.service
 
+test:
+	dig @127.0.0.1 -p 5533 accounts.google.com
+
+testns:
+	nslookup -port=5533 accounts.google.com 127.0.0.1
